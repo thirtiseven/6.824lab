@@ -12,7 +12,7 @@ type Coordinator struct {
 
 }
 
-// Your code here -- RPC handlers for the worker to call.
+// Your code here -- RPC handlers for the worker to call. 
 
 //
 // an example RPC handler.
@@ -63,7 +63,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
-
+	
 
 	c.server()
 	return &c
