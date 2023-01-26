@@ -1,16 +1,41 @@
 package mr
 
 import (
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type Coordinator struct {
 	// Your definitions here.
-
+	// map tasks
+	mapTasks []Task
+	// reduce tasks
+	reduceTasks []Task
+	// the number of map tasks
+	nMapTasks int
+	// the number of reduce tasks
+	nReduceTasks int
+	// the number of map tasks that have been completed
+	nMapTasksCompleted int
+	// the number of reduce tasks that have been completed
+	nReduceTasksCompleted int
+	// intermediate files
+	intermediateFiles []string
+	// the number of workers
+	nWorkers int
+	// whether all map tasks have been completed
+	allMapTasksCompleted bool
+	// channel for map tasks
+	mapTasksChan chan *Task
+	// channel for reduce tasks
+	reduceTasksChan chan *Task
+	// mutex for the coordinator
+	mu sync.Mutex
 }
 
 type TaskStatus int
@@ -44,6 +69,19 @@ type Task struct {
 // Your code here -- RPC handlers for the worker to call.
 
 func (c *Coordinator) GivenTask(args *WorkerStatus, reply *Task) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Done() {
+		// raise an error for no task to give
+		return errors.New("no task to give")
+	}
+	if !c.allMapTasksCompleted {
+		reply = <-c.mapTasksChan
+		reply.Status = IN_PROGRESS
+	} else {
+		reply = <-c.reduceTasksChan
+		reply.Status = IN_PROGRESS
+	}
 	return nil
 }
 
@@ -83,10 +121,42 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{
+		mapTasks:              make([]Task, len(files)),
+		reduceTasks:           make([]Task, nReduce),
+		nMapTasks:             len(files),
+		nReduceTasks:          nReduce,
+		nMapTasksCompleted:    0,
+		nReduceTasksCompleted: 0,
+		intermediateFiles:     make([]string, 0),
+		nWorkers:              0,
+		allMapTasksCompleted:  false,
+		mapTasksChan:          make(chan *Task, len(files)),
+		reduceTasksChan:       make(chan *Task, nReduce),
+	}
 
-	// Your code here.
-
+	// turn files into map tasks
+	for i, file := range files {
+		c.mapTasks[i] = Task{
+			Id:      i,
+			Status:  IDLE,
+			Type:    MAP,
+			Files:   []string{file},
+			NReduce: nReduce,
+		}
+		c.mapTasksChan <- &c.mapTasks[i]
+	}
+	// turn nReduce into reduce tasks
+	for i := 0; i < nReduce; i++ {
+		c.reduceTasks[i] = Task{
+			Id:      i,
+			Status:  IDLE,
+			Type:    REDUCE,
+			Files:   make([]string, 0),
+			NReduce: nReduce,
+		}
+		c.reduceTasksChan <- &c.reduceTasks[i]
+	}
 	c.server()
 	return &c
 }
