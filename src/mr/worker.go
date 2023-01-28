@@ -3,8 +3,10 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
 )
 
 // Map functions return a slice of KeyValue.
@@ -66,12 +68,78 @@ func RequestTask() (Task, bool) {
 	}
 }
 
-func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) {
-	// TODO: process the map task
+func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
+	for _, filename := range task.Files {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", filename)
+		}
+		file.Close()
+		kva := mapf(filename, string(content))
+		intermediateFiles := make([][]KeyValue, task.NReduce)
+		for _, kv := range kva {
+			i := ihash(kv.Key) % task.NReduce
+			intermediateFiles[i] = append(intermediateFiles[i], kv)
+		}
+		filenames = make([]string, task.NReduce)
+		for i := 0; i < task.NReduce; i++ {
+			filename := fmt.Sprintf("mr-%d-%d", task.TaskNumber, i)
+			filenames[i] = filename
+			file, err := os.Create(filename)
+			if err != nil {
+				log.Fatalf("cannot create %v", filename)
+			}
+			enc := json.NewEncoder(file)
+			for _, kv := range intermediateFiles[i] {
+				err := enc.Encode(&kv)
+				if err != nil {
+					log.Fatalf("cannot encode %v", kv)
+				}
+			}
+			file.Close()
+		}
+		return filesnames
+	}
 }
 
-func ProcessReduceTask(task Task, reducef func(string, []string) string) {
-	// TODO: process the reduce task
+func ProcessReduceTask(task Task, reducef func(string, []string) string) (filename string)) {
+	for _, filename := range task.Files {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+	}
+	sort.Sort(ByKey(kva))
+	oname := fmt.Sprintf("mr-out-%d", task.TaskNumber)
+	ofile, _ := os.Create(oname)
+	i := 0
+	for i < len(kva) {
+		j := i + 1
+		for j < len(kva) && kva[j].Key == kva[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kva[k].Value)
+		}
+		output := reducef(kva[i].Key, values)
+		fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
+		i = j
+	}
+	ofile.Close()
+	return oname
 }
 
 // example function to show how to make an RPC call to the coordinator.

@@ -76,11 +76,20 @@ func (c *Coordinator) GivenTask(args *WorkerStatus, reply *Task) error {
 		return errors.New("no task to give")
 	}
 	if !c.allMapTasksCompleted {
+		if c.nMapTasksCompleted == c.nMapTasks {
+			// raise an error for all map tasks have been given
+			// but not all map tasks have been completed
+			return errors.New("all map tasks have been given")
+		}
 		reply = <-c.mapTasksChan
 		reply.Status = IN_PROGRESS
 	} else {
 		reply = <-c.reduceTasksChan
 		reply.Status = IN_PROGRESS
+	}
+	// check all map tasks have been completed
+	if c.nMapTasksCompleted == c.nMapTasks {
+		c.allMapTasksCompleted = true
 	}
 	return nil
 }
@@ -110,9 +119,7 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
+	ret := c.allMapTasksCompleted && len(c.reduceTasksChan) == 0
 
 	return ret
 }
