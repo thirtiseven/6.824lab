@@ -2,6 +2,7 @@ package mr
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -81,16 +82,26 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 			// but not all map tasks have been completed
 			return errors.New("all map tasks have been given")
 		}
-		reply = <-c.mapTasksChan
+		maptask := <-c.mapTasksChan
+		reply.Id = maptask.Id
 		reply.Status = IN_PROGRESS
+		reply.Type = MAP
+		reply.Files = maptask.Files
+		reply.NReduce = maptask.NReduce
+		c.nMapTasksCompleted++
 	} else {
-		reply = <-c.reduceTasksChan
+		reducetask := <-c.reduceTasksChan
+		reply.Id = reducetask.Id
 		reply.Status = IN_PROGRESS
+		reply.Type = REDUCE
+		reply.Files = reducetask.Files
+		reply.NReduce = reducetask.NReduce
 	}
 	// check all map tasks have been completed
 	if c.nMapTasksCompleted == c.nMapTasks {
 		c.allMapTasksCompleted = true
 	}
+	fmt.Printf("reply: %v\n", reply)
 	return nil
 }
 
@@ -151,6 +162,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			Files:   []string{file},
 			NReduce: nReduce,
 		}
+		fmt.Printf("map task: %v\n", c.mapTasks[i])
 		c.mapTasksChan <- &c.mapTasks[i]
 	}
 	// turn nReduce into reduce tasks

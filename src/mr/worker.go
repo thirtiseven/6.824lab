@@ -40,8 +40,12 @@ func Worker(mapf func(string, string) []KeyValue,
 	// there is no more task to do (i.e. the coordinator returns
 	// an empty task) or the coordinator is dead.
 
+	CallExample()
+
 	for {
 		task, ok := RequestTask()
+		fmt.Printf("task: %v\n", task)
+		fmt.Printf("ok: %v\n", ok)
 		if !ok {
 			break
 		}
@@ -66,7 +70,9 @@ func RequestTask() (Task, bool) {
 	reply := Task{}
 
 	ok := call("Coordinator.GiveTask", &args, &reply)
+
 	if ok {
+		fmt.Printf("Reply: %v\n", reply)
 		return reply, true
 	} else {
 		fmt.Printf("call failed!\n")
@@ -75,6 +81,8 @@ func RequestTask() (Task, bool) {
 }
 
 func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
+	// print task.Files in terminal
+	fmt.Printf("task.Files: %v", task.Files)
 	filename := task.Files[0]
 	file, err := os.Open(filename)
 	if err != nil {
