@@ -68,7 +68,7 @@ type Task struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
-func (c *Coordinator) GivenTask(args *WorkerStatus, reply *Task) error {
+func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Done() {
