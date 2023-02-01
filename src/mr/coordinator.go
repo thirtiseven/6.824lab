@@ -26,7 +26,7 @@ type Coordinator struct {
 	// the number of reduce tasks that have been completed
 	nReduceTasksCompleted int
 	// intermediate files
-	intermediateFiles []string
+	intermediateFiles map[int][]string
 	// the number of workers
 	nWorkers int
 	// whether all map tasks have been completed
@@ -88,13 +88,12 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 		reply.Type = MAP
 		reply.Files = maptask.Files
 		reply.NReduce = maptask.NReduce
-		c.nMapTasksCompleted++
 	} else {
 		reducetask := <-c.reduceTasksChan
 		reply.Id = reducetask.Id
 		reply.Status = IN_PROGRESS
 		reply.Type = REDUCE
-		reply.Files = reducetask.Files
+		reply.Files = c.intermediateFiles[reducetask.Id]
 		reply.NReduce = reducetask.NReduce
 	}
 	// check all map tasks have been completed
@@ -102,6 +101,23 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 		c.allMapTasksCompleted = true
 	}
 	fmt.Printf("reply: %v\n", reply)
+	return nil
+}
+
+func (c *Coordinator) CompleteTask(args *FinishedArgs, reply *bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	task := args.Task
+	intermediateFiles := args.Filenames
+	task.Status = DONE
+	if task.Type == MAP {
+		for _, file := range intermediateFiles {
+			c.intermediateFiles[task.Id] = append(c.intermediateFiles[task.Id], file)
+		}
+		c.nMapTasksCompleted++
+	} else {
+		c.nReduceTasksCompleted++
+	}
 	return nil
 }
 
@@ -146,7 +162,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		nReduceTasks:          nReduce,
 		nMapTasksCompleted:    0,
 		nReduceTasksCompleted: 0,
-		intermediateFiles:     make([]string, 0),
+		intermediateFiles:     make(map[int][]string),
 		nWorkers:              0,
 		allMapTasksCompleted:  false,
 		mapTasksChan:          make(chan *Task, len(files)),

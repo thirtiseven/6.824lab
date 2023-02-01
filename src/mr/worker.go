@@ -50,7 +50,10 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 		if task.Type == MAP {
-			ProcessMapTask(task, mapf)
+			filenames := ProcessMapTask(task, mapf)
+			fmt.Printf("filenames: %v\n", filenames)
+			ReportCompleteTask(task, filenames)
+
 		} else if task.Type == REDUCE {
 			ProcessReduceTask(task, reducef)
 		}
@@ -59,25 +62,6 @@ func Worker(mapf func(string, string) []KeyValue,
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
-}
-
-func RequestTask() (Task, bool) {
-	// send an RPC to the coordinator asking for a task
-	args := WorkerStatus{}
-
-	// TODO: fill in the worker status
-
-	reply := Task{}
-
-	ok := call("Coordinator.GiveTask", &args, &reply)
-
-	if ok {
-		fmt.Printf("Reply: %v\n", reply)
-		return reply, true
-	} else {
-		fmt.Printf("call failed!\n")
-		return Task{}, false
-	}
 }
 
 func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
@@ -154,6 +138,47 @@ func ProcessReduceTask(task Task, reducef func(string, []string) string) (filena
 	}
 	ofile.Close()
 	return oname
+}
+
+func RequestTask() (Task, bool) {
+	// send an RPC to the coordinator asking for a task
+	args := WorkerStatus{}
+
+	// TODO: fill in the worker status
+
+	reply := Task{}
+
+	ok := call("Coordinator.GiveTask", &args, &reply)
+
+	if ok {
+		fmt.Printf("Reply: %v\n", reply)
+		return reply, true
+	} else {
+		fmt.Printf("call failed!\n")
+		return Task{}, false
+	}
+}
+
+func ReportCompleteTask(task Task, filenames []string) bool {
+	// send an RPC to the coordinator to report that the task is complete
+
+	args := FinishedArgs{
+		Task:      task,
+		Filenames: filenames,
+	}
+
+	reply := Task{}
+
+	ok := call("Coordinator.CompleteTask", &args, &reply)
+
+	if ok {
+		fmt.Printf("Reply: %v\n", reply)
+		return true
+	} else {
+		fmt.Printf("call failed!\n")
+		return false
+	}
+
 }
 
 // example function to show how to make an RPC call to the coordinator.
