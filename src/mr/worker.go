@@ -46,16 +46,16 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		// loop counter
 		counter++
-		fmt.Printf("counter: %v\n", counter)
+		// fmt.Printf("counter: %v\n", counter)
 		task, ok := RequestTask()
-		fmt.Printf("task: %v\n", task)
-		fmt.Printf("ok: %v\n", ok)
+		// fmt.Printf("task: %v\n", task)
+		// fmt.Printf("ok: %v\n", ok)
 		if !ok {
 			break
 		}
 		if task.Type == MAP {
 			filenames := ProcessMapTask(task, mapf)
-			fmt.Printf("filenames: %v\n", filenames)
+			// fmt.Printf("filenames: %v\n", filenames)
 			ReportCompleteTask(task, filenames)
 		} else if task.Type == REDUCE {
 			filename := ProcessReduceTask(task, reducef)
@@ -69,7 +69,7 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
-	fmt.Printf("task.Files: %v", task.Files)
+	// fmt.Printf("task.Files: %v\n", task.Files)
 	filename := task.Files[0]
 	file, err := os.Open(filename)
 	if err != nil {
@@ -154,7 +154,7 @@ func RequestTask() (Task, bool) {
 	ok := call("Coordinator.GiveTask", &args, &reply)
 
 	if ok {
-		fmt.Printf("Received Task: %v\n", reply)
+		// fmt.Printf("Received Task: %v\n", reply)
 		return reply, true
 	} else {
 		fmt.Printf("call failed!\n")
@@ -175,8 +175,8 @@ func ReportCompleteTask(task Task, filenames []string) bool {
 	ok := call("Coordinator.CompleteTask", &args, &reply)
 
 	if ok {
-		fmt.Printf("Task completed.\n")
-		fmt.Printf("Reply: %v\n", reply)
+		// fmt.Printf("Task completed.\n")
+		// fmt.Printf("Reply: %v\n", reply)
 		return true
 	} else {
 		fmt.Printf("call failed!\n")
@@ -206,7 +206,7 @@ func CallExample() {
 	ok := call("Coordinator.Example", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
+		// fmt.Printf("reply.Y %v\n", reply.Y)
 	} else {
 		fmt.Printf("call failed!\n")
 	}

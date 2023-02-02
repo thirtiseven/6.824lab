@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -81,6 +80,10 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 	if !c.allMapTasksCompleted {
 		if c.nMapTasksCompleted == c.nMapTasks {
 			c.allMapTasksCompleted = true
+			reply.Type = EMPTY
+			return nil
+		}
+		if len(c.mapTasksChan) == 0 {
 			// return a empty task
 			// reply = &Task{}
 			reply.Type = EMPTY
@@ -110,7 +113,7 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 	if c.nMapTasksCompleted == c.nMapTasks {
 		c.allMapTasksCompleted = true
 	}
-	fmt.Printf("send task: %v\n", reply)
+	// fmt.Printf("send task: %v\n", reply)
 	return nil
 }
 
@@ -163,7 +166,7 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	println("nMapTasksCompleted", c.nMapTasksCompleted)
+	// println("nMapTasksCompleted", c.nMapTasksCompleted)
 	ret := c.allMapTasksCompleted && c.nReduceTasksCompleted == c.nReduceTasks
 	return ret
 }
@@ -195,7 +198,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			Files:   []string{file},
 			NReduce: nReduce,
 		}
-		fmt.Printf("map task: %v\n", c.mapTasks[i])
+		// fmt.Printf("map task: %v\n", c.mapTasks[i])
 		c.mapTasksChan <- &c.mapTasks[i]
 	}
 	// turn nReduce into reduce tasks
