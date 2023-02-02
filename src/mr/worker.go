@@ -42,7 +42,11 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	CallExample()
 
+	counter := 0
 	for {
+		// loop counter
+		counter++
+		fmt.Printf("counter: %v\n", counter)
 		task, ok := RequestTask()
 		fmt.Printf("task: %v\n", task)
 		fmt.Printf("ok: %v\n", ok)
@@ -53,9 +57,9 @@ func Worker(mapf func(string, string) []KeyValue,
 			filenames := ProcessMapTask(task, mapf)
 			fmt.Printf("filenames: %v\n", filenames)
 			ReportCompleteTask(task, filenames)
-
 		} else if task.Type == REDUCE {
-			ProcessReduceTask(task, reducef)
+			filename := ProcessReduceTask(task, reducef)
+			ReportCompleteTask(task, []string{filename})
 		}
 	}
 
@@ -65,7 +69,6 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
-	// print task.Files in terminal
 	fmt.Printf("task.Files: %v", task.Files)
 	filename := task.Files[0]
 	file, err := os.Open(filename)
@@ -151,7 +154,7 @@ func RequestTask() (Task, bool) {
 	ok := call("Coordinator.GiveTask", &args, &reply)
 
 	if ok {
-		fmt.Printf("Reply: %v\n", reply)
+		fmt.Printf("Received Task: %v\n", reply)
 		return reply, true
 	} else {
 		fmt.Printf("call failed!\n")
@@ -167,11 +170,12 @@ func ReportCompleteTask(task Task, filenames []string) bool {
 		Filenames: filenames,
 	}
 
-	reply := Task{}
+	reply := FinishedReply{}
 
 	ok := call("Coordinator.CompleteTask", &args, &reply)
 
 	if ok {
+		fmt.Printf("Task completed.\n")
 		fmt.Printf("Reply: %v\n", reply)
 		return true
 	} else {

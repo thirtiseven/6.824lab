@@ -1,13 +1,14 @@
 package mr
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -52,6 +53,7 @@ type TaskType int
 const (
 	MAP TaskType = iota
 	REDUCE
+	EMPTY
 )
 
 type Task struct {
@@ -70,17 +72,19 @@ type Task struct {
 // Your code here -- RPC handlers for the worker to call.
 
 func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
+	if c.Done() {
+		reply.Type = EMPTY
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.Done() {
-		// raise an error for no task to give
-		return errors.New("no task to give")
-	}
 	if !c.allMapTasksCompleted {
 		if c.nMapTasksCompleted == c.nMapTasks {
-			// raise an error for all map tasks have been given
-			// but not all map tasks have been completed
-			return errors.New("all map tasks have been given")
+			c.allMapTasksCompleted = true
+			// return a empty task
+			// reply = &Task{}
+			reply.Type = EMPTY
+			return nil
 		}
 		maptask := <-c.mapTasksChan
 		reply.Id = maptask.Id
@@ -89,6 +93,12 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 		reply.Files = maptask.Files
 		reply.NReduce = maptask.NReduce
 	} else {
+		if len(c.reduceTasksChan) == 0 {
+			// return a empty task
+			// reply = &Task{}
+			reply.Type = EMPTY
+			return nil
+		}
 		reducetask := <-c.reduceTasksChan
 		reply.Id = reducetask.Id
 		reply.Status = IN_PROGRESS
@@ -100,11 +110,11 @@ func (c *Coordinator) GiveTask(args *WorkerStatus, reply *Task) error {
 	if c.nMapTasksCompleted == c.nMapTasks {
 		c.allMapTasksCompleted = true
 	}
-	fmt.Printf("reply: %v\n", reply)
+	fmt.Printf("send task: %v\n", reply)
 	return nil
 }
 
-func (c *Coordinator) CompleteTask(args *FinishedArgs, reply *bool) error {
+func (c *Coordinator) CompleteTask(args *FinishedArgs, reply *FinishedReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	task := args.Task
@@ -112,12 +122,17 @@ func (c *Coordinator) CompleteTask(args *FinishedArgs, reply *bool) error {
 	task.Status = DONE
 	if task.Type == MAP {
 		for _, file := range intermediateFiles {
-			c.intermediateFiles[task.Id] = append(c.intermediateFiles[task.Id], file)
+			// filename format: mr-X-Y
+			// split the filename by "-" and get the Y and convert it to int
+			reduceId, _ := strconv.Atoi(strings.Split(file, "-")[2])
+			c.intermediateFiles[reduceId] = append(c.intermediateFiles[reduceId], file)
 		}
 		c.nMapTasksCompleted++
 	} else {
 		c.nReduceTasksCompleted++
 	}
+	temp := FinishedReply{true}
+	*reply = temp
 	return nil
 }
 
@@ -146,8 +161,10 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := c.allMapTasksCompleted && len(c.reduceTasksChan) == 0
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	println("nMapTasksCompleted", c.nMapTasksCompleted)
+	ret := c.allMapTasksCompleted && c.nReduceTasksCompleted == c.nReduceTasks
 	return ret
 }
 
