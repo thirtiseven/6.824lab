@@ -26,11 +26,14 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
-type WorkerStatus struct {
+type WorkerArgs struct {
 	// The worker id
-	Id int
-	// The worker status
-	Status int
+	Id string
+}
+
+type RegisterReply struct {
+	// whether the worker is registered
+	Registered bool
 }
 
 type FinishedArgs struct {

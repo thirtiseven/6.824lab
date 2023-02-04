@@ -42,13 +42,22 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	CallExample()
 
+	// generate a unique id for this worker
+	workerId := fmt.Sprintf("worker-%v", os.Getpid())
+	// fmt.Printf("workerId: %v)
+	// register it with the coordinator
+	RegisterWorker(workerId)
+
 	counter := 0
 	for {
+		// time.Sleep(1 * time.Second)
 		// loop counter
 		counter++
 		// fmt.Printf("counter: %v\n", counter)
-		task, ok := RequestTask()
-		// fmt.Printf("task: %v\n", task)
+		task, ok := RequestTask(workerId)
+		if task.Type != EMPTY {
+			// fmt.Printf("Received task: %v\n", task)
+		}
 		// fmt.Printf("ok: %v\n", ok)
 		if !ok {
 			break
@@ -66,6 +75,12 @@ func Worker(mapf func(string, string) []KeyValue,
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
+}
+
+func RegisterWorker(workerId string) {
+	args := WorkerArgs{Id: workerId}
+	reply := RegisterReply{}
+	call("Coordinator.RegisterWorker", &args, &reply)
 }
 
 func ProcessMapTask(task Task, mapf func(string, string) []KeyValue) (filenames []string) {
@@ -143,11 +158,9 @@ func ProcessReduceTask(task Task, reducef func(string, []string) string) (filena
 	return oname
 }
 
-func RequestTask() (Task, bool) {
+func RequestTask(workerId string) (Task, bool) {
 	// send an RPC to the coordinator asking for a task
-	args := WorkerStatus{}
-
-	// TODO: fill in the worker status
+	args := WorkerArgs{Id: workerId}
 
 	reply := Task{}
 
