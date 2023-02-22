@@ -19,8 +19,11 @@ package raft
 
 import (
 	//	"bytes"
+
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"6.824/labgob"
 	"6.824/labrpc"
@@ -50,6 +53,7 @@ type ApplyMsg struct {
 type LogEntry struct {
 	Term    int
 	Command interface{}
+	Index   int
 }
 
 // A Go object implementing a single Raft peer.
@@ -68,6 +72,12 @@ type Raft struct {
 
 	commitIndex int
 	lastApplied int
+
+	// for leader only
+	nextIndex  []int
+	matchIndex []int
+
+	nextElectTime time.Time
 
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -213,6 +223,54 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
+type AppendEntriesArgs struct {
+	term         int
+	LedaderId    int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
+}
+
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if args.term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.Success = false
+		return
+	}
+	// Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Term = rf.currentTerm
+		reply.Success = false
+		return
+	}
+	// If an existing entry conflicts with a new one (same index but different terms),
+	// delete the existing entry and all that follow it
+	for i := 0; i < len(args.Entries); i++ {
+		if rf.log[args.PrevLogIndex+i].Term != args.Entries[i].Term {
+			rf.log = rf.log[:args.PrevLogIndex+i]
+			break
+		}
+	}
+	// Append any new entries not already in the log
+	rf.log = append(rf.log, args.Entries...)
+	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	if args.LeaderCommit > rf.commitIndex {
+		if args.LeaderCommit < len(rf.log) {
+			rf.commitIndex = args.LeaderCommit
+		} else {
+			rf.commitIndex = len(rf.log) - 1
+		}
+	}
+	reply.Term = rf.currentTerm
+	reply.Success = true
+}
+
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -263,6 +321,27 @@ func (rf *Raft) ticker() {
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 
+		// check last time received heartbeat
+
+		time.Sleep(time.Duration(rand.Intn(150)+150) * time.Millisecond)
+	}
+}
+
+func (rf *Raft) broadcastRequestVote() {
+	for i := 0; i < len(rf.peers); i++ {
+		if i != rf.me {
+			// initialize RequestVoteArgs
+			var args RequestVoteArgs
+			args.Term = rf.currentTerm
+			args.CandidateId = rf.me
+			args.LastLogIndex = rf.log[len(rf.log)-1].Index
+			args.LastLogTerm = rf.log[len(rf.log)-1].Term
+			// initialize RequestVoteReply
+			var reply RequestVoteReply
+			// request vote rf.peers[i]'s vote with RequestVote RPC
+			go rf.sendRequestVote(i, &args, &reply)
+
+		}
 	}
 }
 
@@ -290,6 +369,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.log = append(rf.log, LogEntry{Term: 0, Command: nil})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+
+	// 2B
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
