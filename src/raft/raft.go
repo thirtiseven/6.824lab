@@ -56,6 +56,15 @@ type LogEntry struct {
 	Index   int
 }
 
+// state of raft: follower, candidate, leader
+type State int
+
+const (
+	Follower = iota
+	Candidate
+	Leader
+)
+
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -66,6 +75,7 @@ type Raft struct {
 
 	// Your data here (2A, 2B, 2C).
 	// 2A: Persistent state on all servers
+	state       State
 	currentTerm int
 	votedFor    int
 	log         []LogEntry
@@ -180,9 +190,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 		return
 	}
-	// If votedFor is null or candidateId, and candidate’s log is at
-	// least as up-to-date as receiver’s log, grant vote
-	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+	// If votedFor is null or candidateId, and candidate's log is at
+	// least as up-to-date as receiver's log, grant vote
+	var upToDate bool = false
+	if len(rf.log) == 0 {
+		upToDate = true
+	} else {
+		lastLog := rf.log[len(rf.log)-1]
+		if lastLog.Term < args.LastLogTerm {
+			upToDate = true
+		} else if lastLog.Term == args.LastLogTerm && lastLog.Index <= args.LastLogIndex {
+			upToDate = true
+		}
+	}
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = true
 		return
@@ -238,12 +259,20 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+
+	// heartbeats
+	if len(args.Entries) == 0 {
+		rf.nextElectTime = time.Now().Add(time.Duration(rand.Intn(150)+150) * time.Millisecond)
+		reply.Success = true
+		return
+	}
+
 	if args.term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
 	}
-	// Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	// Reply false if log does not contain an entry at prevLogIndex whose term matches prevLogTerm
 	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Term = rf.currentTerm
 		reply.Success = false
@@ -321,27 +350,38 @@ func (rf *Raft) ticker() {
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 
-		// check last time received heartbeat
-
-		time.Sleep(time.Duration(rand.Intn(150)+150) * time.Millisecond)
+		// if election timeout elapses without receiving AppendEntries
+		// RPC from current leader or granting vote to candidate:
+		// convert to candidate
+		if time.Now().After(rf.nextElectTime) {
+			rf.hostElection()
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-func (rf *Raft) broadcastRequestVote() {
+func (rf *Raft) hostElection() {
+	rf.currentTerm++
+	rf.votedFor = rf.me
+	rf.state = Candidate
+	rf.nextElectTime = time.Now().Add(time.Duration(rand.Intn(150)+150) * time.Millisecond)
+	var voteCount int = 1
 	for i := 0; i < len(rf.peers); i++ {
 		if i != rf.me {
-			// initialize RequestVoteArgs
 			var args RequestVoteArgs
 			args.Term = rf.currentTerm
 			args.CandidateId = rf.me
 			args.LastLogIndex = rf.log[len(rf.log)-1].Index
 			args.LastLogTerm = rf.log[len(rf.log)-1].Term
-			// initialize RequestVoteReply
 			var reply RequestVoteReply
-			// request vote rf.peers[i]'s vote with RequestVote RPC
 			go rf.sendRequestVote(i, &args, &reply)
-
+			if reply.VoteGranted {
+				voteCount++
+			}
 		}
+	}
+	if voteCount > len(rf.peers)/2+1 {
+		rf.state = Leader
 	}
 }
 
@@ -363,6 +403,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	// 2A
+	rf.state = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.log = make([]LogEntry, 0)
