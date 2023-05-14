@@ -300,6 +300,63 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 }
 
+// send AppendEntries RPC to a server
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+// broadcast AppendEntries RPCs to all other servers
+func (rf *Raft) broadcastAppendEntries() {
+	for i := 0; i < len(rf.peers); i++ {
+		if i != rf.me {
+			var args AppendEntriesArgs
+			args.term = rf.currentTerm
+			args.LedaderId = rf.me
+			args.PrevLogIndex = rf.nextIndex[i] - 1
+			args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+			args.Entries = rf.log[rf.nextIndex[i]:]
+			args.LeaderCommit = rf.commitIndex
+			var reply AppendEntriesReply
+			go rf.sendAppendEntries(i, &args, &reply)
+			if reply.Term > rf.currentTerm {
+				rf.currentTerm = reply.Term
+				rf.state = Follower
+				rf.votedFor = -1
+				return
+			}
+			if reply.Success {
+				rf.nextIndex[i] = len(rf.log)
+				rf.matchIndex[i] = len(rf.log) - 1
+			} else {
+				rf.nextIndex[i]--
+			}
+		}
+	}
+}
+
+// send heartbeats to all other servers
+func (rf *Raft) broadcastHeartbeats() {
+	for !rf.killed() && rf.state == Leader {
+		for i := 0; i < len(rf.peers); i++ {
+			if i != rf.me {
+				// send heartbeats, no entries
+				var args AppendEntriesArgs
+				args.term = rf.currentTerm
+				args.LedaderId = rf.me
+				args.PrevLogIndex = rf.nextIndex[i] - 1
+				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+				args.Entries = make([]LogEntry, 0)
+				args.LeaderCommit = rf.commitIndex
+				var reply AppendEntriesReply
+				go rf.sendAppendEntries(i, &args, &reply)
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -316,6 +373,19 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
+
+	// broadcast AppendEntries RPCs to all other servers
+	if rf.state == Leader {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command, Index: len(rf.log)})
+		rf.nextIndex[rf.me] = len(rf.log)
+		rf.matchIndex[rf.me] = len(rf.log) - 1
+		rf.broadcastAppendEntries()
+		index = len(rf.log) - 1
+		term = rf.currentTerm
+		isLeader = true
+	}
 
 	// Your code here (2B).
 
@@ -361,6 +431,10 @@ func (rf *Raft) ticker() {
 }
 
 func (rf *Raft) hostElection() {
+	// print some log
+	// println("host election")
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	rf.currentTerm++
 	rf.votedFor = rf.me
 	rf.state = Candidate
@@ -375,6 +449,12 @@ func (rf *Raft) hostElection() {
 			args.LastLogTerm = rf.log[len(rf.log)-1].Term
 			var reply RequestVoteReply
 			go rf.sendRequestVote(i, &args, &reply)
+			if reply.Term > rf.currentTerm {
+				rf.currentTerm = reply.Term
+				rf.state = Follower
+				rf.votedFor = -1
+				return
+			}
 			if reply.VoteGranted {
 				voteCount++
 			}
@@ -382,6 +462,16 @@ func (rf *Raft) hostElection() {
 	}
 	if voteCount > len(rf.peers)/2+1 {
 		rf.state = Leader
+		rf.nextIndex = make([]int, len(rf.peers))
+		rf.matchIndex = make([]int, len(rf.peers))
+		for i := 0; i < len(rf.peers); i++ {
+			rf.nextIndex[i] = len(rf.log)
+			rf.matchIndex[i] = 0
+		}
+		go rf.broadcastHeartbeats()
+	} else {
+		rf.state = Follower
+		rf.votedFor = -1
 	}
 }
 
